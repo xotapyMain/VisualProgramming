@@ -1,6 +1,6 @@
 # VisualProgramming
 These are storage spaces for visual programming projects  
-Members: Ребрик Дмитрий ИП-414  
+Members: Rebrik D  
 # LAB1
 interfaces User  
 functions User() - *create new User*  
