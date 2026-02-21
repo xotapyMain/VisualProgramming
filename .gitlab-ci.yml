@@ -1,0 +1,14 @@
+stages:
+  - test
+run-tests:
+  stage: test
+  image: node:18-slim
+  script:
+    - npm ci
+    - npm run test:ci
+  cache:
+    paths:
+      - node_modules/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
