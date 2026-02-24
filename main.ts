@@ -20,3 +20,15 @@ export function csvToJSON(input: string[], delimeter: string) : object[] {
      }
      return result;
 }
+export async function formatCSVFileTiJSONFile(input: string, output: string, delimeter: string) : Promise<void> {
+    try{
+        const fileContent = await readFile(input, 'utf-8');
+        const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
+
+        const jsonData = csvToJSON(lines, delimeter);
+        await writeFile(output,JSON.stringify(jsonData,null,2))
+    }
+    catch (error: any) {
+        throw new Error('file processing failed: ${error.message}');
+    }
+}
