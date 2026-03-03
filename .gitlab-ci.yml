@@ -1,14 +1,27 @@
-stages:
-  - test
-run-tests:
-  stage: test
-  image: node:18-slim
-  script:
-    - npm ci
-    - npm run test:ci
-  cache:
-    paths:
-      - node_modules/
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "push"
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+name: Run TypeScript Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm instal
+        
+      - name: Run tests
+        run: npm test
