@@ -1,30 +1,57 @@
-import { vi, describe, it, expect, beforeEach, Mocked } from 'vitest';
-const mockedReadFile = vi.mocked(fs.readFile);
-mockedReadFile.mockResolvedValue(mockCSV);
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import { csvToJSON, formatCSVFileToJSONFile } from './main';
 
+vi.mock('node:fs/promises');
 
-jest.mock('node:fs/promises');
+describe('CSV to JSON Logic', () => {
+    
+    describe('csvToJSON', () => {
+        it('должна корректно преобразовывать массив строк в объекты', () => {
+            const input = ["id;name", "1;Dima", "2;Andrey"];
+            const expected = [
+                { id: 1, name: "Dima" },
+                { id: 2, name: "Andrey" }
+            ];
+            expect(csvToJSON(input, ';')).toEqual(expected);
+        });
 
-describe('CSV to JSON Converter', () =>{
-    describe('csvToJSON (Task 3)', () => {
-        const input = ["p1;p2;p3;p4", "1;A;b;C", "2;b;v;d"];
-        const expected = [
-            {p1: 1, p2: 'A', p3: 'b', p4: 'C'}
-            {p1: 2, p2: 'B', p3: 'v', p4: 'd'}
-        ];
-        expected(csvToJSON(input, ';')).toEqual(expected);
+        it('должна возвращать пустой массив, если входные данные пусты', () => {
+            expect(csvToJSON([], ';')).toEqual([]);
+        });
+
+        it('должна выбрасывать ошибку, если количество колонок не совпадает', () => {
+            const input = ["id;name", "1;Dima;Andrey"];
+            expect(() => csvToJSON(input, ';')).toThrow(/Mismatch in parametr count at row 1/);
+        });
     });
-    it('should throw Error when columns count mismatch', () => {
-        const input = ["p1;p2", "a;1;2"];
-        expect(() => csvToJSON(input, ';')).toThrow('Mismatch in parametr count');
-    });
-    describe('formatCSVFileToJSONFile ( Task 4)', () =>{
-        const mockCSV = "id;name\n1;Dima";
-        const expectedJSON = JSON.stringify([{id: 1, name: "Dima"}], null, 2);
-        (fs.readFile as jest.Mock).mockResolvedValue(mockCSV);
-        (fs.writeFile as jest.Mock).mockResolvedValue(undefined);
-        await formatCSVFileTiJSONFile('input.csv','utf-8');
-        expect(fs.readFile).toHaveBeenCalledWith('input.csv','utf-8');
-        expectedJSON(fs.writeFile).toHaveBeenCalled('output.json',expectedJSON);
+
+    describe('formatCSVFileToJSONFile', () => {
+        const mockedReadFile = vi.mocked(fs.readFile);
+        const mockedWriteFile = vi.mocked(fs.writeFile);
+
+        beforeEach(() => {
+            vi.clearAllMocks();
+        });
+
+        it('должна прочитать файл, вызвать конвертацию и записать результат', async () => {
+            const mockCSVContent = "id,city\n10,Moscow";
+            const expectedJSON = JSON.stringify([{ id: 10, city: "Moscow" }], null, 2);
+            
+            mockedReadFile.mockResolvedValue(mockCSVContent);
+            mockedWriteFile.mockResolvedValue(undefined);
+
+            await formatCSVFileToJSONFile('test.csv', 'test.json', ',');
+
+            expect(mockedReadFile).toHaveBeenCalledWith('test.csv', 'utf-8');
+            expect(mockedWriteFile).toHaveBeenCalledWith('test.json', expectedJSON);
+        });
+
+        it('должна пробрасывать ошибку, если чтение файла не удалось', async () => {
+            mockedReadFile.mockRejectedValue(new Error('Read error'));
+
+            await expect(formatCSVFileToJSONFile('bad.csv', 'out.json', ','))
+                .rejects.toThrow(/Read error/);
+        });
     });
 });
