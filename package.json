@@ -1,4 +1,10 @@
 {
+  "name": "your-project",
+  "version": "1.0.0",
+  "type": "module", 
+  "scripts": {
+    "test": "vitest run"
+  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^25.3.3",
