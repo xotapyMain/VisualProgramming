@@ -7,18 +7,28 @@ export interface CellProps {
   isSelected: boolean;
   onSelect: (id: CellId) => void;
   onChange: (id: CellId, newValue: string) => void;
+  width: number;
+  height: number;
 }
 
-const Cell: React.FC<CellProps> = ({ id, data, isSelected, onSelect, onChange }) => {
+function Cell({ id, data, isSelected, onSelect, onChange, width, height }: CellProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [tempValue, setTempValue] = useState(data?.value || '');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isEditing) inputRef.current?.focus();
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
   }, [isEditing]);
 
-  const handleDoubleClick = () => setIsEditing(true);
+  useEffect(() => {
+    setTempValue(data?.value || '');
+  }, [data?.value]);
+
+  const handleDoubleClick = () => {
+    setIsEditing(true);
+  };
 
   const handleBlur = () => {
     setIsEditing(false);
@@ -26,11 +36,30 @@ const Cell: React.FC<CellProps> = ({ id, data, isSelected, onSelect, onChange })
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleBlur();
+    if (e.key === 'Enter') {
+      if (isEditing) {
+        handleBlur();
+      } else {
+        setIsEditing(true);
+      }
+    }
     if (e.key === 'Escape') {
       setTempValue(data?.value || '');
       setIsEditing(false);
     }
+  };
+
+  const cellStyle = {
+    border: '1px solid #ccc',
+    width: `${width}px`,
+    height: `${height}px`,
+    backgroundColor: isSelected ? '#e7f1ff' : 'white',
+    cursor: 'cell',
+    padding: '0 5px',
+    lineHeight: `${height}px`,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const
   };
 
   return (
@@ -38,15 +67,9 @@ const Cell: React.FC<CellProps> = ({ id, data, isSelected, onSelect, onChange })
       className={`cell ${isSelected ? 'selected' : ''}`}
       onClick={() => onSelect(id)}
       onDoubleClick={handleDoubleClick}
-      style={{
-        border: '1px solid #ccc',
-        minWidth: '100px',
-        height: '30px',
-        backgroundColor: isSelected ? '#e7f1ff' : 'white',
-        cursor: 'cell',
-        padding: '0 5px',
-        lineHeight: '30px'
-      }}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      style={cellStyle}
     >
       {isEditing ? (
         <input
@@ -55,13 +78,13 @@ const Cell: React.FC<CellProps> = ({ id, data, isSelected, onSelect, onChange })
           onChange={(e) => setTempValue(e.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          style={{ width: '100%', border: 'none', outline: 'none' }}
+          style={{ width: '100%', border: 'none', outline: 'none', height: '100%' }}
         />
       ) : (
         data?.display || ''
       )}
     </div>
   );
-};
+}
 
 export default Cell;
