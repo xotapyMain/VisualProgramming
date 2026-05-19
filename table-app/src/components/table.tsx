@@ -1,24 +1,100 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Cell from './Cell';
 import { evaluateFormula, determineCellType } from '../utils/formuls';
-import type { GridData, CellId } from '../types/type';
+import { exportToCSV, exportToJSON, parseCSV } from '../utils/io';
+import { documentService } from '../service/documentService';
+import type { GridData, CellId, SaveStatus } from '../types/type';
 
-function Spreadsheet() {
+interface SpreadsheetProps {
+  documentId: string;
+  onBackToDashboard: () => void;
+}
+
+function Spreadsheet({ documentId, onBackToDashboard }: SpreadsheetProps) {
+  const [title, setTitle] = useState('');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  
   const [cells, setCells] = useState<GridData>({});
   const [selectedCell, setSelectedCell] = useState<CellId | null>(null);
   const [columnWidths, setColumnWidths] = useState<{ [key: number]: number }>({});
   const [rowHeights, setRowHeights] = useState<{ [key: number]: number }>({});
   const [resizing, setResizing] = useState<{ type: 'col' | 'row', index: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, rowIndex: number } | null>(null);
+  
   const [rowsCount, setRowsCount] = useState(50);
+  const [colsCount, setColsCount] = useState(26);
+
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
   const startPos = useRef<number>(0);
   const startSize = useRef<number>(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const colsCount = 26;
   const defaultColWidth = 110;
   const defaultRowHeight = 30;
 
+  useEffect(() => {
+    const loadDoc = async () => {
+      const doc = await documentService.getById(documentId);
+      if (doc) {
+        setTitle(doc.title);
+        setCells(doc.cells);
+        setRowsCount(doc.rowsCount);
+        setColsCount(doc.colsCount);
+        setHasUnsavedChanges(false);
+        setSaveStatus('saved');
+      }
+    };
+    loadDoc();
+  }, [documentId]);
+
+  const saveDocumentData = async (currentCells: GridData, currentTitle: string) => {
+    setSaveStatus('saving');
+    try {
+      await documentService.patch(documentId, { cells: currentCells, title: currentTitle });
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
+    } catch {
+      setSaveStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const delayDebounceFn = setTimeout(() => {
+      saveDocumentData(cells, title);
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [cells, title, hasUnsavedChanges]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = 'У вас есть несохраненные изменения. Уверены, что хотите уйти?';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    const handleKeyDownGlobal = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveDocumentData(cells, title);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDownGlobal);
+    return () => window.removeEventListener('keydown', handleKeyDownGlobal);
+  }, [cells, title]);
+
   const handleCellChange = (id: CellId, newValue: string) => {
+    setHasUnsavedChanges(true);
+    setSaveStatus('saving');
     setCells(prev => {
       const displayValue = evaluateFormula(newValue, prev);
       const cellType = determineCellType(newValue);
@@ -27,6 +103,30 @@ function Spreadsheet() {
         [id]: { value: newValue, display: displayValue, type: cellType }
       };
     });
+  };
+
+  const handleTitleBlur = () => {
+    setIsEditingTitle(false);
+    if (title.trim()) {setHasUnsavedChanges(true);
+    }
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result;
+      if (typeof text === 'string') {
+        const { parsedCells, maxRows, maxCols } = parseCSV(text);
+        setCells(parsedCells);
+        setRowsCount(maxRows);
+        setColsCount(maxCols);
+        setHasUnsavedChanges(true);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const getColumnWidth = (colIndex: number) => columnWidths[colIndex] || defaultColWidth;
@@ -51,7 +151,6 @@ function Spreadsheet() {
 
     const handleMouseUp = () => {
       setResizing(null);
-      startPos.current = 0;
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -69,6 +168,7 @@ function Spreadsheet() {
     if (contextMenu) {
       setRowsCount(prev => prev + 1);
       setContextMenu(null);
+      setHasUnsavedChanges(true);
     }
   };
 
@@ -85,14 +185,12 @@ function Spreadsheet() {
       });
       setRowsCount(prev => prev - 1);
       setContextMenu(null);
+      setHasUnsavedChanges(true);
     }
   };
 
-  const handleCloseContextMenu = () => {
-    setContextMenu(null);
-  };
-
-  React.useEffect(() => {
+  useEffect(() => {
+    const handleCloseContextMenu = () => setContextMenu(null);
     if (contextMenu) {
       document.addEventListener('click', handleCloseContextMenu);
       return () => document.removeEventListener('click', handleCloseContextMenu);
@@ -101,13 +199,83 @@ function Spreadsheet() {
 
   const gridCols = Array.from({ length: colsCount }, (_, i) => `${getColumnWidth(i)}px`).join(' ');
 
+  const renderStatusText = () => {
+    switch (saveStatus) {
+      case 'saving': return <span style={{ color: '#e6a23c' }}>● Сохранение...</span>;
+      case 'error': return <span style={{ color: '#f56c6c' }}>✖ Ошибка сохранения</span>;
+      case 'saved': return <span style={{ color: '#67c23a' }}>✓ Сохранено</span>;
+    }
+  };
+
   return (
-    <div>
+    <div style={{ padding: '16px', fontFamily: 'sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button 
+            onClick={onBackToDashboard}
+            style={{ padding: '6px 12px', cursor: 'pointer', background: '#fff', border: '1px solid #ccc', borderRadius: '4px' }}
+          >
+            ← В панель
+          </button>
+          
+          {isEditingTitle ? (
+            <input value={title}
+              onChange={e => setTitle(e.target.value)}
+              onBlur={handleTitleBlur}
+              onKeyDown={e => e.key === 'Enter' && handleTitleBlur()}
+              autoFocus
+              style={{ fontSize: '20px', fontWeight: 'bold', border: '1px solid #0070f3', padding: '2px 6px', borderRadius: '4px' }}
+            />
+          ) : (
+            <h2 
+              onClick={() => setIsEditingTitle(true)} 
+              style={{ margin: 0, cursor: 'pointer', fontSize: '24px' }}
+              title="Нажмите, чтобы переименовать"
+            >
+              {title || 'Без названия'} ✎
+            </h2>
+          )}
+
+          <div style={{ fontSize: '14px', fontWeight: '500' }}>
+            {renderStatusText()}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input 
+            type="file" 
+            accept=".csv" 
+            ref={fileInputRef} 
+            onChange={handleImportCSV} 
+            style={{ display: 'none' }} 
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()} 
+            style={{ padding: '6px 12px', background: '#fff', border: '1px solid #0070f3', color: '#0070f3', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            Импорт CSV
+          </button>
+          <button 
+            onClick={() => exportToCSV(cells, rowsCount, colsCount, title || 'table')} 
+            style={{ padding: '6px 12px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            Экспорт CSV
+          </button>
+          <button 
+            onClick={() => exportToJSON(cells, title || 'table')} 
+            style={{ padding: '6px 12px', background: '#333', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            Экспорт JSON
+          </button>
+        </div>
+      </div>
+
       <div style={{
         marginBottom: '10px',
         padding: '8px',
         border: '1px solid #ccc',
-        backgroundColor: '#f9f9f9'
+        backgroundColor: '#f9f9f9',
+        fontSize: '14px'
       }}>
         <strong>Панель формул:</strong> {selectedCell ? `${selectedCell}: ${cells[selectedCell]?.value || ''}` : 'Выберите ячейку'}
       </div>
@@ -223,7 +391,6 @@ function Spreadsheet() {
           );
         })}
       </div>
-
       {contextMenu && (
         <div
           onClick={(e) => e.stopPropagation()}
@@ -240,11 +407,7 @@ function Spreadsheet() {
         >
           <div
             onClick={handleAddRow}
-            style={{
-              padding: '8px 12px',
-              cursor: 'pointer',
-              borderBottom: '1px solid #eee'
-            }}
+            style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
           >
@@ -252,10 +415,7 @@ function Spreadsheet() {
           </div>
           <div
             onClick={handleDeleteRow}
-            style={{
-              padding: '8px 12px',
-              cursor: 'pointer'
-            }}
+            style={{ padding: '8px 12px', cursor: 'pointer' }}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
           >

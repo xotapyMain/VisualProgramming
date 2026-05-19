@@ -12,7 +12,18 @@ export interface GridData {
   [key: string]: CellData;
 }
 
-export interface TableConfig {
-  rows: number;
-  cols: number;
+export interface DocumentMetadata {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  rowsCount: number;
+  colsCount: number;
+  preview: string[][];
 }
+
+export interface DocumentModel extends DocumentMetadata {
+  cells: GridData;
+}
+
+export type SaveStatus = 'saved' | 'saving' | 'error';
